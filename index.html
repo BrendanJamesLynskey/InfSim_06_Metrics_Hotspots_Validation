@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Inference Simulators 06 — Metrics, Hot-Spots &amp; Validation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,700&family=Geist+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1c1815;
+            --bg-card: #231e1a;
+            --bg-code: #2b2520;
+            --text-primary: #efe8dc;
+            --text-secondary: #a2978b;
+            --accent: #aabd59;
+            --accent-dim: #aabd5944;
+            --accent-glow: #aabd5933;
+            --border: #3a322b;
+            --font-display: 'Bricolage Grotesque', sans-serif;
+            --font-mono: 'Geist Mono', 'Geist Mono', monospace;
+            --font-body: 'Instrument Sans', sans-serif;
+            --max-width: 900px;
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 17px;
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ── */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .hero > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .series-label {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+
+        .hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+
+        .hero h1 .accent {
+            color: var(--accent);
+        }
+
+        .hero .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: 2rem;
+        }
+
+        /* ── Tag Pills ── */
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 2.5rem;
+        }
+
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+            white-space: nowrap;
+        }
+
+        /* ── Pipeline Flow Bar ── */
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            margin-bottom: 1rem;
+            max-width: var(--max-width);
+        }
+
+        .pipeline-step {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.3rem 0.7rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .pipeline-arrow {
+            color: var(--accent);
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        /* ── Slides ── */
+        .slide {
+            min-height: 100vh;
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .slide-number {
+            font-family: var(--font-display);
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--accent-dim);
+            position: absolute;
+            top: 2rem;
+            right: 1.5rem;
+            line-height: 1;
+            user-select: none;
+        }
+
+        .slide h2 {
+            font-family: var(--font-display);
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            line-height: 1.25;
+        }
+
+        .slide h3 {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .slide p {
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .slide p strong {
+            color: var(--text-primary);
+        }
+
+        .slide ul, .slide ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        .slide li {
+            margin-bottom: 0.4rem;
+        }
+
+        .slide li strong {
+            color: var(--text-primary);
+        }
+
+        /* ── Code Blocks ── */
+        .code-block {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 1.25rem 0;
+            overflow: hidden;
+        }
+
+        .code-header {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(170,189,89,0.08);
+            padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .code-block pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: #dad1c5;
+        }
+
+        /* Syntax highlighting (manual) */
+        .kw { color: #de805a; }
+        .fn { color: #d7bbdf; }
+        .str { color: #bcdbd4; }
+        .cm { color: #a2978b; font-style: italic; }
+        .num { color: #97cdc6; }
+        .type { color: #e3b174; }
+        .dir { color: #de805a; }
+        .mac { color: #e3b174; }
+
+        /* ── Tables ── */
+        .table-wrap {
+            overflow-x: auto;
+            margin: 1.25rem 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background: var(--bg-code);
+            color: var(--accent);
+            font-weight: 600;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-display);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:nth-child(even) td {
+            background: rgba(35,30,26,0.5);
+        }
+
+        /* ── Diagrams ── */
+        .diagram-flow {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .diagram-box {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .diagram-box.accent {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(170,189,89,0.08);
+        }
+
+        .diagram-box.dim {
+            color: var(--text-secondary);
+            border-color: var(--border);
+        }
+
+        .diagram-arrow {
+            color: var(--accent);
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+
+        /* Vertical flow diagrams */
+        .diagram-vertical {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .diagram-vertical .diagram-arrow {
+            font-size: 1.1rem;
+        }
+
+        /* Nested hierarchy diagram */
+        .hierarchy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .hierarchy-level {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .hierarchy-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 80px;
+            text-align: right;
+        }
+
+        .hierarchy-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .hierarchy-item {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .hierarchy-item.accent {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(170,189,89,0.08);
+        }
+
+        /* Grid diagram */
+        .diagram-grid {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .diagram-grid.cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .diagram-grid.cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        .diagram-panel {
+            padding: 1rem;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        .diagram-panel.accent-border {
+            border-left: 3px solid var(--accent);
+        }
+
+        .diagram-panel h4 {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .diagram-panel p, .diagram-panel ul {
+            font-size: 0.85rem;
+        }
+
+        /* ── Callout Boxes ── */
+        .callout {
+            background: var(--bg-card);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 1rem 1.25rem;
+            margin: 1.25rem 0;
+        }
+
+        .callout p {
+            margin-bottom: 0;
+        }
+
+        .callout .callout-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.3rem;
+        }
+
+        /* ── Tier Visual ── */
+        .tier-visual {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin: 1.5rem 0;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .tier-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .tier-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            min-width: 90px;
+            text-align: right;
+        }
+
+        .tier-fill {
+            height: 32px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            padding: 0 0.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            white-space: nowrap;
+            transition: width 0.6s ease;
+        }
+
+        .tier-cost {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            min-width: 70px;
+        }
+
+        /* ── Contents list ── */
+        .contents-list {
+            list-style: none;
+            padding-left: 0;
+            counter-reset: contents;
+        }
+
+        .contents-list li {
+            counter-increment: contents;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .contents-list li:last-child {
+            border-bottom: none;
+        }
+
+        .contents-list li::before {
+            content: counter(contents, decimal-leading-zero);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            min-width: 2rem;
+        }
+
+        .contents-list a {
+            color: var(--text-primary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .contents-list a:hover {
+            color: var(--accent);
+        }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            padding: 3rem 1.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            max-width: var(--max-width);
+            margin: 0 auto;
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .slide {
+                padding: 3rem 1rem;
+                min-height: auto;
+            }
+
+            .slide-number {
+                font-size: 3rem;
+                top: 1.5rem;
+                right: 1rem;
+            }
+
+            .slide h2 {
+                font-size: 1.5rem;
+            }
+
+            .diagram-grid.cols-2,
+            .diagram-grid.cols-3 {
+                grid-template-columns: 1fr;
+            }
+
+            .pipeline {
+                gap: 0.15rem;
+            }
+
+            .pipeline-step {
+                font-size: 0.6rem;
+                padding: 0.2rem 0.4rem;
+            }
+
+            .hero h1 {
+                font-size: 1.8rem;
+            }
+
+            table {
+                font-size: 0.78rem;
+            }
+
+            .tier-label {
+                min-width: 60px;
+                font-size: 0.65rem;
+            }
+
+            .tier-fill {
+                font-size: 0.6rem;
+                height: 26px;
+            }
+        }
+
+        /* ── Interactive controls (added for Local LLM series) ── */
+        .control-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin: 1.25rem 0;
+        }
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .control-row label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            min-width: 180px;
+        }
+        .control-row input[type="range"] {
+            flex: 1;
+            min-width: 160px;
+            accent-color: var(--accent);
+        }
+        .control-row input[type="number"],
+        .control-row select {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: 4px;
+            padding: 0.3rem 0.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+        .control-row .val {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            min-width: 80px;
+            text-align: right;
+        }
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            padding: 0.4rem 0.9rem;
+            background: var(--accent-dim);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .btn:hover { background: rgba(170,189,89,0.2); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.secondary {
+            background: var(--bg-code);
+            color: var(--text-secondary);
+            border-color: var(--border);
+        }
+        .result-box {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 4px;
+            padding: 0.75rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            margin-top: 0.75rem;
+        }
+        .result-box .line-label { color: var(--text-secondary); }
+        .result-box .line-val   { color: var(--accent); font-weight: 600; }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        .metric {
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.6rem 0.8rem;
+            text-align: center;
+        }
+        .metric .metric-label {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .metric .metric-value {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            color: var(--accent);
+            font-weight: 600;
+            margin-top: 0.2rem;
+        }
+
+        /* Canvas / SVG containers */
+        .canvas-wrap {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.25rem 0;
+            overflow-x: auto;
+        }
+        .canvas-wrap canvas,
+        .canvas-wrap svg {
+            display: block;
+            margin: 0 auto;
+            max-width: 100%;
+        }
+
+        /* Small inline badge */
+        .badge {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: middle;
+            margin-left: 0.3rem;
+        }
+        .badge.ok    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .badge.warn  { border-color: #e3b174; color: #e3b174; background: rgba(227,177,116,0.08); }
+        .badge.bad   { border-color: #de805a; color: #de805a; background: rgba(222,128,90,0.08); }
+
+
+        /* ── LLM Inference Simulators additions ── */
+        .canvas-wrap canvas { image-rendering: auto; display: block; width: 100%; height: auto; }
+        .canvas-wrap svg { max-width: 100%; height: auto; }
+        .ladder { display: grid; gap: 0.4rem; margin: 1.25rem 0; }
+        .ladder-row {
+            display: grid; grid-template-columns: 11rem 1fr 7.5rem; gap: 0.75rem; align-items: center;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+            padding: 0.55rem 0.85rem; font-size: 0.88rem;
+        }
+        .ladder-row .rung { font-family: var(--font-display); font-weight: 600; color: var(--accent); }
+        .ladder-row .speed { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); text-align: right; }
+        .res-list { list-style: none; padding: 0; margin: 0.75rem 0; }
+        .res-list li { padding: 0.6rem 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+        .res-list li:last-child { border-bottom: none; }
+        .res-list .what { color: var(--text-secondary); display: block; font-size: 0.86rem; margin-top: 0.15rem; }
+        .res-list a { color: var(--accent); text-decoration: none; }
+        .res-list a:hover { text-decoration: underline; }
+        .qa { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; margin: 0.6rem 0; padding: 0.2rem 1rem; }
+        .qa summary { cursor: pointer; padding: 0.6rem 0; font-weight: 600; }
+        .qa p, .qa ul { margin-bottom: 0.75rem; font-size: 0.92rem; }
+        .sim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.4rem 1.25rem; }
+        .chart-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+        .chart-title { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.3rem; }
+        .slide a { color: var(--accent); }
+        @media (max-width: 640px) {
+            .ladder-row { grid-template-columns: 1fr; gap: 0.2rem; }
+            .ladder-row .speed { text-align: left; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="hero">
+    <div class="series-label">LLM Inference Simulators &mdash; Presentation 06</div>
+    <h1>Metrics, <span class="accent">Hot-Spots</span> &amp; Validation</h1>
+    <p class="subtitle">Turning a simulation into evidence: latency distributions, utilisation, MFU/MBU, stage breakdowns and hot-spot attribution; traces in Perfetto; statistics that survive review; and the verification ladder &mdash; unit, invariant, analytic, behavioural, correlation &mdash; wired into CI.</p>
+
+    <div class="tags">
+        <span class="tag">Percentiles</span>
+        <span class="tag">Utilisation</span>
+        <span class="tag">Hot-spots</span>
+        <span class="tag">Perfetto</span>
+        <span class="tag">Little's law</span>
+        <span class="tag">CI / Jenkins</span>
+    </div>
+
+    <div class="pipeline">
+        <span class="pipeline-step">Probe</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Aggregate</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Attribute</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Validate</span>
+        <span class="pipeline-arrow">&rarr;</span>
+        <span class="pipeline-step">Report</span>
+    </div>
+</header>
+
+<section class="slide" id="slide-00">
+    <div class="slide-number">00</div>
+    <h2>Topics We'll Cover</h2>
+    <ul class="contents-list">
+        <li><a href="#slide-01">From Events to Evidence</a></li>
+        <li><a href="#slide-02">Latency: Distributions, Not Averages</a></li>
+        <li><a href="#slide-03">Utilisation and Efficiency</a></li>
+        <li><a href="#slide-04">Hot-Spot Attribution</a></li>
+        <li><a href="#slide-05">Traces: Seeing the Timeline in Perfetto</a></li>
+        <li><a href="#slide-06">Statistics That Survive Review</a></li>
+        <li><a href="#slide-07">Interactive: Replications, Confidence Intervals and Common Random Numbers</a></li>
+        <li><a href="#slide-08">The Verification Ladder</a></li>
+        <li><a href="#slide-09">Testing Frameworks</a></li>
+        <li><a href="#slide-10">CI/CD and Engineering Metrics</a></li>
+        <li><a href="#slide-11">Specifications, Test Plans and Reports</a></li>
+        <li><a href="#slide-12">What to Take Away</a></li>
+    </ul>
+</section>
+
+<section class="slide" id="slide-01">
+    <div class="slide-number">01</div>
+    <h2>From Events to Evidence</h2>
+    <p>A simulator's output is not a number; it is an <strong>argument</strong> to an architect, a programme manager or a customer that a design will or won't meet its targets. Metrics are the evidence in that argument, so they need the same engineering care as the model. Four families:</p>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border"><h4>Latency</h4><p>How long things take, as distributions: TTFT, TPOT, ITL, end-to-end; per stage and per request class.</p></div>
+        <div class="diagram-panel accent-border"><h4>Utilisation</h4><p>How hard each resource works: busy fraction, MFU, MBU, mean batch, queue lengths, buffer high-water marks.</p></div>
+        <div class="diagram-panel accent-border"><h4>Attribution</h4><p>Why: which stage dominates, which resource owns it, and what changes if that resource were faster.</p></div>
+        <div class="diagram-panel accent-border"><h4>Power &amp; energy</h4><p>What it costs: average and peak power, joules per token, the static/compute/memory/link split, time spent power-capped (deck 07).</p></div>
+    </div>
+    <h3>Four kinds of probe</h3>
+    <div class="table-wrap">
+    <table>
+        <tr><th>Probe</th><th>Records</th><th>Cost</th><th>Example in the companion simulator</th></tr>
+        <tr><td>Counter / accumulator</td><td>Sums: busy time, bytes, FLOPs</td><td>O(1) per event</td><td><code>Instance.busy</code>, <code>.flops</code>, <code>.bytes</code></td></tr>
+        <tr><td>Time-weighted integral</td><td>&int; N(t) dt for mean queue or population</td><td>O(1) per change</td><td><code>Simulation._population</code>, used for Little's law</td></tr>
+        <tr><td>Per-entity timestamps</td><td>Every milestone of every request</td><td>O(entities)</td><td><code>Request.prefill_start</code>, &hellip; <code>.finish</code></td></tr>
+        <tr><td>Trace / sampler</td><td>Timeline of steps; periodic snapshots</td><td>O(events), can dominate</td><td><code>Tracer</code>, <code>sampler()</code></td></tr>
+    </table>
+    </div>
+</section>
+
+<section class="slide" id="slide-02">
+    <div class="slide-number">02</div>
+    <h2>Latency: Distributions, Not Averages</h2>
+    <ul>
+        <li><strong>Report percentiles</strong> (p50, p90, p99, sometimes p99.9) and plot the <strong>complementary CDF on log-log axes</strong>. Tails are where the SLO violations live, and a linear CDF hides them (compare the plot in deck 05).</li>
+        <li><strong>Say which population.</strong> ITL p99 over all tokens is not the same as the p99 over requests of each request's worst ITL. Both are useful, but they answer different questions.</li>
+        <li><strong>Streaming percentiles.</strong> Keeping every sample costs memory proportional to tokens. HDR histograms (fixed relative error, mergeable) and t-digests (accurate tails) give percentiles in constant memory, and they merge across parallel runs.</li>
+        <li><strong>Open-loop arrivals avoid coordinated omission.</strong> A load generator that waits for each response before sending the next under-reports latency under overload. A simulator with a pre-generated arrival stream is open-loop by construction. Keep it that way when you add closed-loop clients.</li>
+        <li><strong>Goodput beats throughput.</strong> Count only requests that met <em>all</em> their SLOs. A system that is fast on average and terrible at the tail scores badly, as it should.</li>
+    </ul>
+    <div class="code-block">
+        <div class="code-header">metrics.py: one percentile convention, used everywhere</div>
+        <pre><code><span class="kw">def</span> <span class="fn">percentile</span>(xs, p):
+    <span class="str">"""Linear-interpolated percentile (numpy's default), so results can be cross-checked."""</span>
+    s = sorted(xs); k = (len(s) - <span class="num">1</span>) * p / <span class="num">100</span>
+    lo, hi = math.floor(k), math.ceil(k)
+    <span class="kw">return</span> s[lo] + (s[hi] - s[lo]) * (k - lo)</code></pre>
+    </div>
+</section>
+
+<section class="slide" id="slide-03">
+    <div class="slide-number">03</div>
+    <h2>Utilisation and Efficiency</h2>
+    <p>"Utilisation" hides two different questions: <em>how often is it doing something</em>, and <em>how much of its capability is it using while it does</em>.</p>
+    <div class="table-wrap">
+    <table>
+        <tr><th>Resource (defaults, 4 req/s)</th><th>Busy</th><th>MFU</th><th>MBU</th><th>Mean batch</th><th>Reading</th></tr>
+        <tr><td>prefill-0</td><td>51%</td><td>28%</td><td>3%</td><td>1.2</td><td>Compute-bound when busy; idle half the time: headroom for TTFT</td></tr>
+        <tr><td>decode-0</td><td>100%</td><td>4%</td><td>77%</td><td>14</td><td>Always busy (continuous batching) but memory-bound; the "100%" is not saturation</td></tr>
+        <tr><td>kv-link</td><td>5%</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Plenty of headroom on IB NDR</td></tr>
+    </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Why busy fraction misleads</div>
+        <p>A continuous-batching decode engine is "busy" whenever any sequence is running, even at batch size 1. The useful saturation signals are the decode <em>queue</em> (requests waiting for admission), KV occupancy, and how close the batch is to the bandwidth roofline. This is why the simulator attributes hot-spots by where requests <em>wait</em>, not by busy time.</p>
+    </div>
+    <h3>Operational laws: free consistency checks</h3>
+    <ul>
+        <li><strong>Utilisation law:</strong> U = X &middot; S (throughput times service time per job).</li>
+        <li><strong>Little's law:</strong> L = &lambda; &middot; W (mean population = arrival rate &times; mean time in system). It holds for <em>any</em> stable system, so a violation is a bug in the probes. The simulator measures L by exact time integration and asserts L = &lambda;W in its tests.</li>
+        <li><strong>Forced flow law:</strong> X<sub>resource</sub> = V &middot; X<sub>system</sub>, which relates per-resource visit counts to system throughput.</li>
+    </ul>
+</section>
+
+<section class="slide" id="slide-04">
+    <div class="slide-number">04</div>
+    <h2>Hot-Spot Attribution</h2>
+    <p>A hot-spot is the place where making things faster would most improve the metric you care about. Three ways to find it, in increasing order of rigour:</p>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border">
+            <h4>1. Highest utilisation</h4>
+            <p>Cheap, and often wrong: see the decode instance at "100%". Good only for resources with no internal batching.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>2. Stage breakdown</h4>
+            <p>Split each request's life into stages that sum exactly to its latency (queue, prefill, KV wait, transfer, decode queue, decode). The largest <em>waiting</em> stage, mapped to the resource that owns it, is the hot-spot. This is what the simulator reports.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>3. Sensitivity (what-if)</h4>
+            <p>Speed up one resource by 10% in the model and measure the change in goodput or p99. This is causal profiling (the idea behind the Coz profiler) and only a simulator can do it cheaply. It also catches bottlenecks that shift as soon as you relieve them.</p>
+        </div>
+    </div>
+    <div class="code-block">
+        <div class="code-header">The simulator's report for 2 prefill, 6 req/s, 25 GbE</div>
+        <pre><code>utilisation  prefill-0 47%  prefill-1 13%  decode-0 100%  kv-link 96%
+where time goes  prefill 1%  kv_wait 80%  kv_transfer 1%  decode 18%
+hot-spot     stage=kv_wait -&gt; kv-link (busy 96%)   busy&gt;90%: decode-0, kv-link</code></pre>
+    </div>
+    <p>The stage breakdown carries a tested invariant (stages sum to end-to-end latency for every request), so the attribution cannot silently lose time.</p>
+</section>
+
+<section class="slide" id="slide-05">
+    <div class="slide-number">05</div>
+    <h2>Traces: Seeing the Timeline in Perfetto</h2>
+    <p>Aggregate metrics tell you <em>that</em> something is wrong; a timeline tells you <em>why</em>. The Chrome trace-event JSON format is the lingua franca: Perfetto (<code>ui.perfetto.dev</code>), <code>chrome://tracing</code> and many tools read it, and it is easy to emit.</p>
+    <div class="code-block">
+        <div class="code-header">trace.py output from <code>disagg-sim --trace</code> (first events, rounded)</div>
+        <pre><code>{<span class="str">"traceEvents"</span>: [
+  {<span class="str">"ph"</span>:<span class="str">"M"</span>, <span class="str">"name"</span>:<span class="str">"process_name"</span>, <span class="str">"pid"</span>:<span class="num">2</span>, <span class="str">"args"</span>:{<span class="str">"name"</span>:<span class="str">"prefill-0"</span>}},
+  {<span class="str">"ph"</span>:<span class="str">"X"</span>, <span class="str">"name"</span>:<span class="str">"prefill n=1 tok=1236"</span>, <span class="str">"pid"</span>:<span class="num">2</span>, <span class="str">"ts"</span>:<span class="num">36072.8</span>, <span class="str">"dur"</span>:<span class="num">80384.3</span>},
+  {<span class="str">"ph"</span>:<span class="str">"X"</span>, <span class="str">"name"</span>:<span class="str">"kv r0 405 MB"</span>, <span class="str">"pid"</span>:<span class="num">3</span>, <span class="str">"ts"</span>:<span class="num">116457.1</span>, <span class="str">"dur"</span>:<span class="num">8110.2</span>},
+  {<span class="str">"ph"</span>:<span class="str">"X"</span>, <span class="str">"name"</span>:<span class="str">"decode b=1"</span>, <span class="str">"pid"</span>:<span class="num">4</span>, <span class="str">"ts"</span>:<span class="num">124567.3</span>, <span class="str">"dur"</span>:<span class="num">13700.6</span>},
+  {<span class="str">"ph"</span>:<span class="str">"C"</span>, <span class="str">"name"</span>:<span class="str">"population"</span>, <span class="str">"pid"</span>:<span class="num">1</span>, <span class="str">"ts"</span>:<span class="num">0</span>, <span class="str">"args"</span>:{<span class="str">"in_system"</span>:<span class="num">0</span>, <span class="str">"link_queue"</span>:<span class="num">0</span>}}
+], <span class="str">"displayTimeUnit"</span>: <span class="str">"ms"</span>}</code></pre>
+    </div>
+    <ul>
+        <li><code>X</code> = complete slice (start + duration, microseconds); <code>C</code> = counter track; <code>M</code> = metadata (names).</li>
+        <li><strong>Mind the size:</strong> a trace of every decode step of a long run is millions of events. Trace a window, sample, or trace only what crosses a threshold.</li>
+        <li><strong>Same format for silicon and RTL:</strong> if the hardware team's profilers and the RTL testbench emit the same format, the model's and the hardware's timelines can be laid side by side for correlation.</li>
+    </ul>
+</section>
+
+<section class="slide" id="slide-06">
+    <div class="slide-number">06</div>
+    <h2>Statistics That Survive Review</h2>
+    <p>A stochastic simulation produces a <em>random</em> answer. Treat each run as one experiment and report uncertainty, or someone in the review will.</p>
+    <div class="table-wrap">
+    <table>
+        <tr><th>Technique</th><th>Problem it solves</th><th>How</th></tr>
+        <tr><td><strong>Warm-up deletion</strong></td><td>The system starts empty, so early requests see no queue</td><td>Discard an initial period, chosen by eye with Welch's graphical method or by a rule; the simulator drops the first 10% of requests</td></tr>
+        <tr><td><strong>Independent replications</strong></td><td>One run gives no error bar</td><td>Repeat with different seeds; mean &plusmn; t<sub>n&minus;1</sub> &middot; s/&radic;n</td></tr>
+        <tr><td><strong>Batch means</strong></td><td>Replications each pay warm-up</td><td>One long run cut into batches long enough to be roughly independent</td></tr>
+        <tr><td><strong>Common random numbers</strong></td><td>Comparing two designs with independent noise needs many runs</td><td>Feed both designs the <em>same</em> arrival stream; the noise largely cancels in the difference</td></tr>
+        <tr><td><strong>Run to drain</strong></td><td>Long requests censored at the end</td><td>Stop when all measured requests finish, as the simulator does</td></tr>
+    </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Tail percentiles need many samples</div>
+        <p>A p99 from 800 requests rests on about eight observations beyond it. Expect it to move noticeably from seed to seed. Run more requests or more replications before quoting a p99 to two significant figures.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-07">
+    <div class="slide-number">07</div>
+    <h2>Interactive: Replications, Confidence Intervals and Common Random Numbers</h2>
+    <p>Run the deck 05 simulator <em>n</em> times with different seeds, for disaggregated and colocated, and compare the difference in TTFT p99. With <strong>common random numbers</strong> both designs see the same request stream in each replication; without them each design gets its own stream.</p>
+    <div class="control-panel">
+        <div class="sim-grid">
+            <div class="control-row"><label for="ci-n">Replications</label><input type="range" id="ci-n" min="3" max="20" value="8"><span class="val" id="ci-n-val">8</span></div>
+            <div class="control-row"><label for="ci-req">Requests per run</label><input type="range" id="ci-req" min="200" max="1500" step="100" value="400"><span class="val" id="ci-req-val">400</span></div>
+            <div class="control-row"><label for="ci-rate">Arrival rate (req/s)</label><input type="range" id="ci-rate" min="1" max="6" step="0.5" value="4"><span class="val" id="ci-rate-val">4</span></div>
+            <div class="control-row"><label for="ci-metric">Metric</label><select id="ci-metric"><option value="ttft.p99" selected>TTFT p99</option><option value="itl.p99">ITL p99</option><option value="tpot.p50">TPOT p50</option><option value="goodput">Goodput</option></select></div>
+        </div>
+        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;"><button class="btn" id="ci-go">Run replications</button><span id="ci-status" style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-secondary);align-self:center;"></span></div>
+        <div class="table-wrap" style="margin-top:0.75rem;"><table id="ci-table"><tr><th>Quantity</th><th>Mean</th><th>95% CI half-width</th></tr></table></div>
+        <div class="canvas-wrap" style="padding:0.4rem;"><canvas id="ci-canvas" width="840" height="200"></canvas></div>
+    </div>
+<script id="sim-engine">
+// disagg-sim, JavaScript port of Disaggregated_Inference_Sim (SimPy).
+// Same cost model, same scheduling rules, same metrics; a hand-written
+// event heap stands in for SimPy's environment.
+(function (root) {
+    const MODELS = {
+        'llama3-8b':  { name: 'Llama-3-8B',  L: 32, d: 4096, h: 32, kvh: 8, ff: 14336, V: 128256 },
+        'llama3-70b': { name: 'Llama-3-70B', L: 80, d: 8192, h: 64, kvh: 8, ff: 28672, V: 128256 },
+    };
+    const DEVICES = {
+        // idle W, dynamic pJ/FLOP and pJ/HBM-byte: illustrative, as in hardware.py
+        h100:    { name: 'H100-SXM', F: 989e12,  B: 3.35e12,  M: 80e9, fe: 0.55, be: 0.8, tdp: 700, idle: 100, pjF: 1.0, pjB: 60 },
+        a100:    { name: 'A100-SXM', F: 312e12,  B: 2.039e12, M: 80e9, fe: 0.55, be: 0.8, tdp: 400, idle: 60,  pjF: 1.6, pjB: 70 },
+        optical: { name: 'Hypothetical optical MAC', F: 4000e12, B: 3.35e12, M: 80e9, fe: 0.4, be: 0.8, tdp: 700, idle: 180, pjF: 0.1, pjB: 60 },
+    };
+    const LINKS = {
+        'nvlink4':  { name: 'NVLink 4',      bw: 450e9,   lat: 5e-6,  pjBit: 5 },
+        'ib-ndr':   { name: 'IB NDR 400G',   bw: 50e9,    lat: 10e-6, pjBit: 15 },
+        'pcie5':    { name: 'PCIe Gen5 x16', bw: 64e9,    lat: 5e-6,  pjBit: 6 },
+        'eth-100g': { name: '100 GbE',       bw: 12.5e9,  lat: 20e-6, pjBit: 15 },
+        'eth-25g':  { name: '25 GbE',        bw: 3.125e9, lat: 20e-6, pjBit: 15 },
+    };
+    const STAGES = ['prefill_queue', 'prefill', 'kv_wait', 'kv_transfer', 'decode_queue', 'decode'];
+    const OWNER = { prefill_queue: 'prefill', prefill: 'prefill', kv_wait: 'kv-link',
+                    kv_transfer: 'kv-link', decode_queue: 'decode', decode: 'decode' };
+
+    function derive(m) {
+        const hd = m.d / m.h, kv = m.kvh * hd;
+        const ppl = 2 * m.d * m.d + 2 * m.d * kv + 3 * m.d * m.ff;
+        return { ...m, params: m.L * ppl + 2 * m.V * m.d, matmul: m.L * ppl + m.V * m.d,
+                 weightBytes: 2 * (m.L * ppl + 2 * m.V * m.d), kvTok: 2 * m.L * kv * 2 };
+    }
+
+    const cbrt = x => Math.sign(x) * Math.pow(Math.abs(x), 1 / 3);
+    function costModel(model, dev, n, overhead, powerCap, dvfs, sMin) {
+        const Fr = dev.F * dev.fe * n, Br = dev.B * dev.be * n;
+        const jF = dev.pjF * 1e-12, jB = dev.pjB * 1e-12, idleW = dev.idle * n;
+        const cap = Math.min(powerCap ?? Infinity, dev.tdp);       // the board limit always applies
+        const budget = (cap - dev.idle) * n;
+        if (budget !== null && budget <= 0) throw new Error('power cap is below idle power');
+        sMin = sMin ?? 0.4;
+        // DVFS three-roof step model: mirror of CostModel.step_time in hardware.py
+        const t = (flops, bytes) => {
+            const tc = flops / Fr, tm = bytes / Br;
+            let ec = flops * jF; const em = bytes * jB;
+            let s = (dvfs && tc < tm) ? Math.max(sMin, tc / tm) : 1.0;
+            let bound = tc >= tm ? 'compute' : 'memory';
+            if (budget !== null && (ec * s * s + em) / Math.max(tc / s, tm) > budget) {
+                bound = 'power';
+                const x = (budget * tm - em) / ec;
+                if (x > 0 && Math.sqrt(x) * tm >= tc) s = Math.min(s, Math.sqrt(x));
+                else {
+                    const p = em / ec, q = -budget * tc / ec, r = Math.sqrt(q * q / 4 + p * p * p / 27);
+                    s = cbrt(-q / 2 + r) + cbrt(-q / 2 - r);
+                }
+                s = Math.max(s, sMin);
+            }
+            let time = Math.max(tc / s, tm);
+            ec = ec * s * s;
+            if (budget !== null && (ec + em) / time > budget) time = (ec + em) / budget;
+            return { flops, bytes, time: time + overhead, bound, ec, em };
+        };
+        return {
+            idleW,
+            kvCap: Math.floor((dev.M * n * 0.9 - model.weightBytes) / model.kvTok),
+            prefill(lens) {
+                let tok = 0, fl = 0;
+                for (const s of lens) { tok += s; fl += 2 * model.L * model.d * s * (s + 1); }
+                return t(2 * model.matmul * tok + fl, model.weightBytes + tok * model.kvTok);
+            },
+            decode(ctx) {
+                let c = 0; for (const x of ctx) c += x;
+                const b = ctx.length;
+                return t(2 * model.matmul * b + 4 * model.L * model.d * c, model.weightBytes + (c + b) * model.kvTok);
+            },
+        };
+    }
+
+    // ── workload ───────────────────────────────────────────────────────
+    function mulberry32(a) {
+        return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+            t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    }
+    function makeWorkload(rate, n, prompt, promptCv, output, outputCv, seed) {
+        const r = mulberry32(seed || 1);
+        const normal = () => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
+        const len = (mean, cv) => {
+            if (cv <= 0) return Math.round(mean);
+            const s2 = Math.log(1 + cv * cv);
+            const x = Math.exp(Math.log(mean) - s2 / 2 + Math.sqrt(s2) * normal());
+            return Math.min(32768, Math.max(1, Math.round(x)));
+        };
+        const out = []; let t = 0;
+        for (let i = 0; i < n; i++) {
+            t += -Math.log(1 - r()) / rate;
+            out.push([t, len(prompt, promptCv), len(output, outputCv)]);
+        }
+        return out;
+    }
+
+    // ── engine ─────────────────────────────────────────────────────────
+    function simulate(cfg, rows) {
+        const model = derive(MODELS[cfg.model]), dev = DEVICES[cfg.device];
+        const link = { ...LINKS[cfg.link], ch: cfg.linkChannels || 1 };
+        const capFor = role => (role === 'prefill' ? cfg.prefillPowerCap : role === 'decode' ? cfg.decodePowerCap : null) ?? cfg.powerCap ?? null;
+        const cmFor = role => costModel(model, dev, cfg.devicesPerInstance, cfg.stepOverhead ?? 0.5e-3, capFor(role), !!cfg.dvfs);
+        const cm = cmFor('colocated');
+        const maxPT = cfg.maxPrefillTokens || 8192, maxB = cfg.maxDecodeBatch || 256;
+
+        let now = 0, seq = 0, nDone = 0, nRej = 0, stop = false;
+        const heap = [];
+        const push = (t, f) => {
+            const e = [t, seq++, f]; heap.push(e);
+            let i = heap.length - 1;
+            while (i > 0) { const p = (i - 1) >> 1;
+                if (heap[p][0] < e[0] || (heap[p][0] === e[0] && heap[p][1] < e[1])) break;
+                heap[i] = heap[p]; i = p; }
+            heap[i] = e;
+        };
+        const pop = () => {
+            const top = heap[0], last = heap.pop();
+            if (heap.length) { let i = 0; const n = heap.length;
+                for (;;) { let l = 2 * i + 1, r = l + 1, m = i;
+                    const less = (a, b) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+                    if (l < n && less(heap[l], m === i ? last : heap[m])) m = l;
+                    if (r < n && less(heap[r], m === i ? last : heap[m])) m = r;
+                    if (m === i) break; heap[i] = heap[m]; i = m; }
+                heap[i] = last; }
+            return top;
+        };
+
+        const reqs = rows.map(([a, p, o], i) => ({ rid: i, arrival: a, prompt: p, output: o,
+            prefillStart: null, firstToken: null, kvStart: null, kvReady: null, decodeStart: null,
+            finish: null, tokensOut: 0, lastToken: null, itls: [] }));
+        const samples = [];
+
+        function mkInst(role, idx) {
+            return { role, name: `${role}-${idx}`, queue: [], running: [], kvUsed: 0, busy: 0, steps: 0,
+                     flops: 0, bytes: 0, batchSum: 0, active: false, wake: false, cm: cmFor(role),
+                     ec: 0, em: 0, peakW: 0, powerBound: 0 };
+        }
+        const prefill = [], decode = [], coloc = [];
+        if (cfg.mode === 'disagg') {
+            for (let i = 0; i < cfg.nPrefill; i++) prefill.push(mkInst('prefill', i));
+            for (let i = 0; i < cfg.nDecode; i++) decode.push(mkInst('decode', i));
+        } else for (let i = 0; i < cfg.nColocated; i++) coloc.push(mkInst('colocated', i));
+        const insts = [...prefill, ...decode, ...coloc];
+        const ls = { busy: 0, bytes: 0, transfers: 0, wait: 0, inUse: 0, queue: [], energy: 0 };
+
+        const kvNeed = r => r.prompt + r.output;
+        const load = i => i.role === 'prefill' ? i.queue.reduce((s, r) => s + r.prompt, 0) : i.queue.length + i.running.length;
+        const pick = arr => arr.reduce((b, i) => load(i) < load(b) ? i : b, arr[0]);
+
+        function finish(r) { r.finish = now; nDone++; if (nDone + nRej === reqs.length) stop = true; }
+        function submit(inst, r) {
+            inst.queue.push(r);
+            if (!inst.active && !inst.wake) { inst.wake = true; push(now, () => { inst.wake = false; loop(inst); }); }
+        }
+        function step(inst, cost, batch, then) {
+            inst.active = true;
+            push(now + cost.time, () => {
+                inst.busy += cost.time; inst.steps++; inst.flops += cost.flops; inst.bytes += cost.bytes;
+                inst.batchSum += batch; inst.ec += cost.ec; inst.em += cost.em;
+                const pw = inst.cm.idleW + (cost.ec + cost.em) / cost.time; if (pw > inst.peakW) inst.peakW = pw;
+                if (cost.bound === 'power') inst.powerBound += cost.time;
+                inst.active = false; then(); loop(inst);
+            });
+        }
+        function firstToken(r) { r.firstToken = r.lastToken = now; r.tokensOut = 1; }
+        function decodeDone(inst) {
+            const still = [];
+            for (const r of inst.running) {
+                r.itls.push(now - r.lastToken); r.tokensOut++; r.lastToken = now;
+                if (r.tokensOut >= r.output) { inst.kvUsed -= kvNeed(r); finish(r); } else still.push(r);
+            }
+            inst.running = still;
+        }
+        function decodeOnce(inst) {
+            const ctx = inst.running.map(r => r.prompt + r.tokensOut);
+            step(inst, inst.cm.decode(ctx), ctx.length, () => decodeDone(inst));
+        }
+        function loop(inst) {
+            if (inst.active) return;
+            if (inst.role === 'prefill') {
+                if (!inst.queue.length) return;
+                const batch = []; let tok = 0;
+                while (inst.queue.length && (!batch.length || tok + inst.queue[0].prompt <= maxPT)) {
+                    const r = inst.queue.shift(); batch.push(r); tok += r.prompt; }
+                batch.forEach(r => r.prefillStart = now);
+                step(inst, inst.cm.prefill(batch.map(r => r.prompt)), batch.length, () => {
+                    for (const r of batch) { firstToken(r); if (r.output <= 1) finish(r); else kvRequest(r); }
+                });
+            } else if (inst.role === 'decode') {
+                while (inst.queue.length && inst.running.length < maxB && inst.kvUsed + kvNeed(inst.queue[0]) <= cm.kvCap) {
+                    const r = inst.queue.shift(); inst.kvUsed += kvNeed(r); r.decodeStart = now; inst.running.push(r); }
+                if (inst.running.length) decodeOnce(inst);
+            } else {
+                const batch = []; let tok = 0;
+                while (inst.queue.length && inst.running.length + batch.length < maxB
+                       && (!batch.length || tok + inst.queue[0].prompt <= maxPT)
+                       && inst.kvUsed + kvNeed(inst.queue[0]) <= cm.kvCap) {
+                    const r = inst.queue.shift(); inst.kvUsed += kvNeed(r); batch.push(r); tok += r.prompt; }
+                if (batch.length) {
+                    batch.forEach(r => r.prefillStart = now);
+                    step(inst, inst.cm.prefill(batch.map(r => r.prompt)), batch.length, () => {
+                        for (const r of batch) { firstToken(r);
+                            if (r.output <= 1) { inst.kvUsed -= kvNeed(r); finish(r); }
+                            else { r.decodeStart = now; inst.running.push(r); } }
+                    });
+                } else if (inst.running.length) decodeOnce(inst);
+            }
+        }
+        function kvRequest(r) { if (ls.inUse < link.ch) kvStart(r); else ls.queue.push(r); }
+        function kvStart(r) {
+            ls.inUse++; r.kvStart = now; ls.wait += now - r.firstToken;
+            const nbytes = r.prompt * model.kvTok, t = link.lat + nbytes / link.bw;
+            push(now + t, () => {
+                ls.inUse--; ls.busy += t; ls.bytes += nbytes; ls.transfers++; r.kvReady = now;
+                ls.energy += nbytes * 8 * link.pjBit * 1e-12;
+                if (ls.queue.length) kvStart(ls.queue.shift());
+                submit(pick(decode), r);
+            });
+        }
+        // arrivals
+        for (const r of reqs) push(r.arrival, () => {
+            const pool = cfg.mode === 'disagg' ? decode : coloc;
+            if (kvNeed(r) > cm.kvCap) { nRej++; r.rejected = true; if (nDone + nRej === reqs.length) stop = true; return; }
+            submit(pick(cfg.mode === 'disagg' ? prefill : pool), r);
+        });
+        // sampler (passive probe)
+        const dt = cfg.sampleDt || 0.25;
+        const sample = () => {
+            const row = { t: now, linkQ: ls.queue.length, prefillQ: 0, decodeQ: 0, running: 0 };
+            for (const i of insts) { if (i.role === 'prefill') row.prefillQ += i.queue.length;
+                else { row.decodeQ += i.queue.length; row.running += i.running.length; } }
+            samples.push(row); push(now + dt, sample);
+        };
+        push(0, sample);
+
+        while (heap.length && !stop) { const e = pop(); now = e[0]; e[2](); }
+        return { cfg, model, cm, reqs, insts, link: ls, linkCh: link.ch, horizon: now, samples };
+    }
+
+    // ── metrics (mirror of metrics.py) ─────────────────────────────────
+    function percentile(xs, p) {
+        if (!xs.length) return NaN;
+        const s = Float64Array.from(xs).sort(), k = (s.length - 1) * p / 100, lo = Math.floor(k), hi = Math.ceil(k);
+        return s[lo] + (s[hi] - s[lo]) * (k - lo);
+    }
+    const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN;
+    const dist = xs => ({ mean: mean(xs), p50: percentile(xs, 50), p90: percentile(xs, 90), p99: percentile(xs, 99) });
+    function stages(r) {
+        const hand = r.kvReady !== null ? r.kvReady : r.firstToken;
+        const s = { prefill_queue: r.prefillStart - r.arrival, prefill: r.firstToken - r.prefillStart,
+                    kv_wait: 0, kv_transfer: 0, decode_queue: 0, decode: 0 };
+        if (r.kvStart !== null) { s.kv_wait = r.kvStart - r.firstToken; s.kv_transfer = r.kvReady - r.kvStart; }
+        if (r.decodeStart !== null) { s.decode_queue = r.decodeStart - hand; s.decode = r.finish - r.decodeStart; }
+        return s;
+    }
+    function summarise(res) {
+        const cfg = res.cfg, H = res.horizon;
+        const done = res.reqs.filter(r => r.finish !== null).sort((a, b) => a.arrival - b.arrival);
+        const steady = done.slice(Math.floor(done.length * (cfg.warmupFrac ?? 0.1)));
+        const ttft = steady.map(r => r.firstToken - r.arrival);
+        const tpot = steady.filter(r => r.output >= 2).map(r => (r.finish - r.firstToken) / (r.output - 1));
+        const itl = []; steady.forEach(r => { for (const x of r.itls) itl.push(x); });
+        const e2e = steady.map(r => r.finish - r.arrival);
+        const met = steady.filter(r => (r.firstToken - r.arrival) <= cfg.ttftSlo &&
+            (r.output < 2 || (r.finish - r.firstToken) / (r.output - 1) <= cfg.tpotSlo));
+        const win = steady.length > 1 ? steady[steady.length - 1].arrival - steady[0].arrival : NaN;
+        const util = {}; res.insts.forEach(i => util[i.name] = i.busy / H);
+        util['kv-link'] = res.link.busy / (res.linkCh * H);
+        const st = {}; STAGES.forEach(k => st[k] = mean(steady.map(r => stages(r)[k])));
+        const e2eMean = mean(e2e);
+        const waits = STAGES.filter(k => k !== 'decode');
+        const hot = waits.reduce((a, b) => st[b] > st[a] ? b : a, waits[0]);
+        let owner = OWNER[hot]; if (cfg.mode === 'colocated' && owner !== 'kv-link') owner = 'colocated';
+        const pool = Object.keys(util).filter(k => k.startsWith(owner));
+        const hotRes = pool.reduce((a, b) => util[b] > util[a] ? b : a, pool[0]);
+        const eff = {}; res.insts.forEach(i => eff[i.name] = {
+            mfu: i.flops / (H * res.cfgDev().F * res.cfg.devicesPerInstance),
+            mbu: i.bytes / (H * res.cfgDev().B * res.cfg.devicesPerInstance),
+            batch: i.steps ? i.batchSum / i.steps : 0 });
+        // energy: static power for the whole run + dynamic work + link (mirror of energy_report)
+        let st_ = 0, ce = 0, me = 0; const perE = {};
+        res.insts.forEach(i => { const s_ = i.cm.idleW * H; st_ += s_; ce += i.ec; me += i.em;
+            perE[i.name] = { avgW: (s_ + i.ec + i.em) / H, peakW: i.peakW, powerBoundFrac: i.busy ? i.powerBound / i.busy : 0 }; });
+        const outTok = done.reduce((s, r) => s + r.output, 0), totJ = st_ + ce + me + res.link.energy;
+        const energy = { totalJ: totJ, avgW: totJ / H, jPerTok: totJ / outTok, tokPerJ: outTok / totJ,
+            breakdown: { static: st_ / totJ, compute: ce / totJ, memory: me / totJ, link: res.link.energy / totJ }, perInstance: perE };
+        return {
+            mode: cfg.mode, completed: done.length, measured: steady.length, energy,
+            rejected: res.reqs.length - done.length,
+            ttft: dist(ttft), tpot: dist(tpot), itl: dist(itl), e2e: dist(e2e),
+            tokPerS: done.reduce((s, r) => s + r.output, 0) / H, reqPerS: done.length / H,
+            goodput: win > 0 ? met.length / win : NaN, sloAttain: steady.length ? met.length / steady.length : NaN,
+            util, eff, stages: st, stageShare: Object.fromEntries(STAGES.map(k => [k, st[k] / e2eMean])),
+            hot: { stage: hot, resource: hotRes, util: util[hotRes] },
+            kvLink: { GB: res.link.bytes / 1e9, meanWaitMs: 1e3 * res.link.wait / Math.max(1, res.link.transfers) },
+            raw: { ttft, itl }, samples: res.samples, horizon: H,
+        };
+    }
+    function run(cfg, rows) {
+        const res = simulate(cfg, rows);
+        res.cfgDev = () => DEVICES[cfg.device];
+        return summarise(res);
+    }
+    root.DisaggSim = { MODELS, DEVICES, LINKS, STAGES, derive, costModel, makeWorkload, simulate, summarise, run, percentile };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+    <script>
+    (function(){
+        const S = window.DisaggSim, $ = id => document.getElementById(id);
+        ['ci-n','ci-req','ci-rate'].forEach(id => $(id).addEventListener('input', e => $(id + '-val').textContent = e.target.value));
+        const T = [0, 12.71, 4.30, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.20, 2.18, 2.16, 2.14, 2.13, 2.12, 2.11, 2.10, 2.09, 2.09];
+        const stat = xs => { const n = xs.length, m = xs.reduce((a, b) => a + b, 0) / n;
+            const s = Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)); return { m, h: T[n - 1] * s / Math.sqrt(n), xs }; };
+        const base = mode => ({ model: 'llama3-70b', device: 'h100', devicesPerInstance: 4, mode, nPrefill: 1, nDecode: 1, nColocated: 2,
+                                link: 'ib-ndr', linkChannels: 1, ttftSlo: 1.0, tpotSlo: 0.025, warmupFrac: 0.1, sampleDt: 1e9 });
+        const get = (m, path) => path.split('.').reduce((o, k) => o[k], m);
+        function go(){
+            const n = +$('ci-n').value, N = +$('ci-req').value, rate = +$('ci-rate').value, key = $('ci-metric').value;
+            const scale = key === 'goodput' ? 1 : 1e3, unit = key === 'goodput' ? ' req/s' : ' ms';
+            const wl = seed => S.makeWorkload(rate, N, 2048, 0.5, 256, 0.5, seed);
+            const d = [], c = [], diffCRN = [], diffInd = [];
+            for (let i = 0; i < n; i++) {
+                const w = wl(100 + i);
+                const a = get(S.run(base('disagg'), w), key) * scale, b = get(S.run(base('colocated'), w), key) * scale;
+                const b2 = get(S.run(base('colocated'), wl(500 + i)), key) * scale;
+                d.push(a); c.push(b); diffCRN.push(a - b); diffInd.push(a - b2);
+            }
+            const rows = [['disagg', stat(d)], ['colocated', stat(c)], ['difference, common random numbers', stat(diffCRN)], ['difference, independent streams', stat(diffInd)]];
+            $('ci-table').innerHTML = '<tr><th>Quantity</th><th>Mean</th><th>95% CI half-width</th></tr>' +
+                rows.map(([k, s]) => `<tr><td>${k}</td><td>${s.m.toFixed(key === 'goodput' ? 3 : 1)}${unit}</td><td>&plusmn; ${s.h.toFixed(key === 'goodput' ? 3 : 1)}${unit}</td></tr>`).join('');
+            const cv = $('ci-canvas'), g = cv.getContext('2d'), W = cv.width, H = cv.height;
+            g.clearRect(0, 0, W, H); g.font = '11px "Geist Mono", monospace';
+            const all = rows.flatMap(([, s]) => [s.m - s.h, s.m + s.h, ...s.xs]);
+            const lo = Math.min(0, ...all), hi = Math.max(0, ...all), X = v => 300 + (v - lo) / (hi - lo || 1) * (W - 330);
+            g.strokeStyle = '#3a322b'; g.beginPath(); g.moveTo(X(0), 10); g.lineTo(X(0), H - 10); g.stroke();
+            rows.forEach(([k, s], i) => {
+                const y = 30 + i * 45, col = ['#aabd59', '#de805a', '#97cdc6', '#e3b174'][i];
+                g.fillStyle = '#a2978b'; g.fillText(k, 8, y + 4);
+                g.fillStyle = col; g.globalAlpha = 0.35; s.xs.forEach(x => { g.beginPath(); g.arc(X(x), y, 3, 0, 7); g.fill(); }); g.globalAlpha = 1;
+                g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.moveTo(X(s.m - s.h), y); g.lineTo(X(s.m + s.h), y); g.stroke(); g.lineWidth = 1;
+                g.fillRect(X(s.m) - 1.5, y - 8, 3, 16);
+            });
+            $('ci-status').textContent = `${3 * n} simulations`;
+        }
+        $('ci-go').onclick = () => { $('ci-status').textContent = 'running…'; setTimeout(go, 20); };
+    })();
+    </script>
+    <p style="font-size:0.85rem;">The CRN interval on the difference is usually much narrower than the independent one: the same number of runs gives a sharper answer to "which design is better, and by how much?". Every comparison in the companion simulator (<code>--compare</code>, the deck 05 Compare button) uses common random numbers.</p>
+</section>
+
+<section class="slide" id="slide-08">
+    <div class="slide-number">08</div>
+    <h2>The Verification Ladder</h2>
+    <p>"Is the simulator right?" splits into <strong>verification</strong> (does the code implement the model?) and <strong>validation</strong> (does the model represent reality?). Each rung catches errors the others miss. The companion simulator's 32 tests are organised this way.</p>
+    <div class="table-wrap">
+    <table>
+        <tr><th>Rung</th><th>Checks</th><th>Example test</th></tr>
+        <tr><td><strong>Unit</strong></td><td>Components against hand calculation</td><td>Llama-3-70B has 70.6 B parameters and 320 KiB of KV per token; decode at batch 1 &asymp; weights / bandwidth</td></tr>
+        <tr><td><strong>Invariant</strong></td><td>Properties true for every run</td><td>Every request completes with all its tokens; timestamps ordered; stages sum to E2E; KV released; same seed gives the same answer</td></tr>
+        <tr><td><strong>Analytic</strong></td><td>The engine against queueing theory</td><td>KV link matches M/D/1 (Pollaczek&ndash;Khinchine) within 8%; Little's law holds</td></tr>
+        <tr><td><strong>Behavioural</strong></td><td>Expected qualitative effects</td><td>Disaggregation cuts p99 ITL more than 4&times;; a slow link becomes the hot-spot; a second prefill instance cuts TTFT</td></tr>
+        <tr><td><strong>Property-based</strong></td><td>Invariants over generated configurations</td><td>Hypothesis draws random rates, pool sizes, modes and seeds and checks conservation for each</td></tr>
+        <tr><td><strong>Differential</strong></td><td>Two implementations agree</td><td>Fast path is bit-identical to baseline; the browser JavaScript port is bit-identical to Python</td></tr>
+        <tr><td><strong>Correlation</strong></td><td>Model against measurement</td><td>(The next step) compare with vLLM on real GPUs, Vidur, or RTL cycle counts; track the error</td></tr>
+    </table>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Validation is a number, not a feeling</div>
+        <p>For a performance model the deliverable is a <strong>correlation report</strong>: for a defined set of workloads, model against measurement, error per metric, and a target (say within &plusmn;10% on throughput and p50 latency). Track it over time; it is one of the most persuasive engineering metrics a simulation team has.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-09">
+    <div class="slide-number">09</div>
+    <h2>Testing Frameworks</h2>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border">
+            <h4>pytest</h4>
+            <p>The default for Python. Fixtures for shared setup, <code>@pytest.mark.parametrize</code> to run the same check across modes and configurations, <code>pytest.approx</code> for floating tolerance, markers to split quick and nightly suites.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Hypothesis (property-based)</h4>
+            <p>Generates hundreds of random inputs, including nasty edge cases, checks invariants, and shrinks any failure to a minimal example. Ideal for simulators, whose correctness is mostly invariants.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Golden / approval tests</h4>
+            <p>Store the metrics of reference runs; fail CI when they change unexpectedly, and require an explicit "re-bless" when a change is intended. This is how you stop silent model drift.</p>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>cocotb, UVM, GoogleTest, cargo test</h4>
+            <p>cocotb runs Python testbenches against RTL, so the simulator's models become scoreboards. UVM is the SystemVerilog standard. GoogleTest and Catch2 cover C++ cores; <code>cargo test</code> and proptest cover Rust.</p>
+        </div>
+    </div>
+    <div class="code-block">
+        <div class="code-header">A Hypothesis property test for the simulator</div>
+        <pre><code><span class="kw">from</span> hypothesis <span class="kw">import</span> given, settings, strategies <span class="kw">as</span> st
+
+<span class="dir">@settings(max_examples=50, deadline=None)</span>
+<span class="dir">@given(rate=st.floats(0.5, 8), n_prefill=st.integers(1, 3), n_decode=st.integers(1, 3),
+       seed=st.integers(0, 10_000), mode=st.sampled_from([<span class="str">"disagg"</span>, <span class="str">"colocated"</span>]))</span>
+<span class="kw">def</span> <span class="fn">test_conservation_for_any_config</span>(rate, n_prefill, n_decode, seed, mode):
+    cfg = SimConfig(mode=mode, n_prefill=n_prefill, n_decode=n_decode)
+    wl = poisson_workload(rate, <span class="num">100</span>, LengthDist(<span class="num">1024</span>, <span class="num">1.0</span>), LengthDist(<span class="num">64</span>, <span class="num">1.0</span>), seed)
+    simulate(cfg, wl)
+    <span class="kw">for</span> r <span class="kw">in</span> wl:
+        <span class="kw">assert</span> r.tokens_out == r.output_len
+        <span class="kw">assert</span> abs(sum(r.stages().values()) - r.e2e) &lt; <span class="num">1e-9</span></code></pre>
+    </div>
+</section>
+
+<section class="slide" id="slide-10">
+    <div class="slide-number">10</div>
+    <h2>CI/CD and Engineering Metrics</h2>
+    <p>A simulator used for sign-off needs the same pipeline discipline as production software. Jenkins remains common in hardware companies (on-premises agents, licences, large compute farms); GitHub Actions or GitLab CI are equivalent.</p>
+    <div class="code-block">
+        <div class="code-header">Jenkinsfile (declarative): fast checks on every push, sweeps nightly</div>
+        <pre><code>pipeline {
+  agent { label <span class="str">'sim'</span> }
+  triggers { cron(<span class="str">'H 2 * * *'</span>) }                       <span class="cm">// nightly</span>
+  stages {
+    stage(<span class="str">'Lint &amp; unit'</span>)   { steps { sh <span class="str">'ruff check . &amp;&amp; pytest -m "not slow" --junitxml=unit.xml'</span> } }
+    stage(<span class="str">'Golden metrics'</span>) { steps { sh <span class="str">'pytest tests/golden --junitxml=golden.xml'</span> } }
+    stage(<span class="str">'Nightly sweep'</span>)  {
+      when { triggeredBy <span class="str">'TimerTrigger'</span> }
+      steps { sh <span class="str">'python sweeps/run_all.py --workers 32 --out results/'</span> }
+    }
+    stage(<span class="str">'Report'</span>) { steps { sh <span class="str">'python reports/build.py results/ &gt; report.html'</span> } }
+  }
+  post { always { junit <span class="str">'*.xml'</span>; archiveArtifacts <span class="str">'report.html, results/**'</span> } }
+}</code></pre>
+    </div>
+    <h3>Engineering metrics worth tracking (and reporting)</h3>
+    <div class="diagram-grid cols-2">
+        <div class="diagram-panel accent-border"><h4>Model quality</h4><ul><li>Correlation error against hardware or RTL, per workload</li><li>Operator and feature coverage (fraction of target models that run end to end)</li><li>Open model-accuracy issues by severity</li></ul></div>
+        <div class="diagram-panel accent-border"><h4>Engineering health</h4><ul><li>Test pass rate and code coverage</li><li>Simulator speed (simulated seconds per wall-clock second) as a tracked number</li><li>Time from architecture question to answer</li><li>Milestones in Jira linked to spec sections</li></ul></div>
+    </div>
+</section>
+
+<section class="slide" id="slide-11">
+    <div class="slide-number">11</div>
+    <h2>Specifications, Test Plans and Reports</h2>
+    <p>Three documents turn a simulator from a personal tool into a team asset. Each has a recognisable skeleton.</p>
+    <div class="diagram-grid cols-3">
+        <div class="diagram-panel accent-border">
+            <h4>Simulator specification</h4>
+            <ul>
+                <li>Purpose and questions in scope</li>
+                <li>Abstraction level per component</li>
+                <li>Modelling assumptions (FCFS or shared links, KV reservation policy)</li>
+                <li>Inputs, configuration schema, outputs and metric definitions</li>
+                <li>Interfaces to frameworks and RTL</li>
+                <li>Known limitations</li>
+            </ul>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Test plan</h4>
+            <ul>
+                <li>Features &rarr; tests traceability matrix</li>
+                <li>Levels: unit, invariant, analytic, behavioural, differential, correlation</li>
+                <li>Pass criteria and tolerances</li>
+                <li>Workload set and seeds</li>
+                <li>Regression cadence (per push, nightly, release)</li>
+                <li>Coverage goals</li>
+            </ul>
+        </div>
+        <div class="diagram-panel accent-border">
+            <h4>Performance report</h4>
+            <ul>
+                <li>Question and answer, first</li>
+                <li>Configuration and workload, reproducible (hash, SHA, seeds)</li>
+                <li>Results with confidence intervals</li>
+                <li>Hot-spots and sensitivities</li>
+                <li>Assumptions that could change the answer</li>
+                <li>Recommendation</li>
+            </ul>
+        </div>
+    </div>
+    <div class="callout">
+        <div class="callout-label">Writing for two audiences</div>
+        <p>Lead with a one-paragraph answer a non-expert can act on; put the methods and caveats where the experts will look for them. The same evidence, layered.</p>
+    </div>
+</section>
+
+<section class="slide" id="slide-12">
+    <div class="slide-number">12</div>
+    <h2>What to Take Away</h2>
+    <ul>
+        <li><strong>Four metric families:</strong> latency distributions, utilisation and efficiency, attribution, and power and energy.</li>
+        <li><strong>Busy &ne; saturated.</strong> Attribute hot-spots by where requests wait, and confirm with what-if sensitivity runs.</li>
+        <li><strong>Emit Chrome traces</strong>, and read them in Perfetto.</li>
+        <li><strong>Report uncertainty</strong>: warm-up deletion, replications, confidence intervals, and common random numbers for comparisons.</li>
+        <li><strong>Climb the verification ladder</strong> from unit to correlation, and automate it in CI with golden metrics.</li>
+        <li><strong>Specs, test plans and reports</strong> make the simulator's answers trustworthy to people who did not write it.</li>
+    </ul>
+    <div class="callout">
+        <div class="callout-label">Next</div>
+        <p>Deck 07 adds the other half of the performance story: power and energy, modelled, measured and traded against latency.</p>
+    </div>
+</section>
+
+<!-- ════════════════════════════════════ Footer ════════════════════════════════════ -->
+<footer class="footer">
+    <p>Part of the <a href="https://github.com/BrendanJamesLynskey/LLM_Hub_Inference_Simulators">LLM Inference Simulators series</a> &middot; code: <a href="https://github.com/BrendanJamesLynskey/Disaggregated_Inference_Sim">Disaggregated_Inference_Sim</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://brendanjameslynskey.github.io/InfSim_05_Disaggregated_Inference/">&larr; 05 Disaggregated Inference, Simulated</a> &nbsp;&middot;&nbsp; <a href="https://brendanjameslynskey.github.io/InfSim_07_Power_and_Energy/">07 Power &amp; Energy in Inference Simulators &rarr;</a></p>
+    <p style="margin-top: 0.5rem; font-size: 0.8rem;"><a href="https://github.com/BrendanJamesLynskey/LLMs#hardware--inference">Back to the LLMs hub</a></p>
+</footer>
+
+<script>
+    // Smooth scroll for TOC links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+
+    // Subtle fade-in on scroll
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.slide').forEach(slide => {
+        slide.style.opacity = '0';
+        slide.style.transform = 'translateY(30px)';
+        slide.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(slide);
+    });
+</script>
+
+</body>
+</html>
